@@ -49,22 +49,46 @@ This creates a `parse-pics` binary in the current directory.
 
 ## Usage
 
-### Run the compiled binary
+### Parse and organise media files
 
 ```bash
-./parse-pics SOURCE_DIR TARGET_DIR
+# Using compiled binary
+./parse-pics parse SOURCE_DIR TARGET_DIR
+
+# Using make
+make run ARGS="parse /path/to/source /path/to/target"
 ```
 
-### Run without compiling
-
-```bash
-make run ARGS="/path/to/source /path/to/target"
-```
-
-### Arguments
-
+**Arguments:**
 - `SOURCE_DIR` - Directory containing subdirectories with media files.
 - `TARGET_DIR` - Directory where organised files will be placed.
+
+### Rename a date-based directory
+
+```bash
+# Using compiled binary
+./parse-pics rename DIRECTORY NAME
+
+# Using make
+make run ARGS="rename '/path/to/2025 12 December 15' Vacation"
+```
+
+**Arguments:**
+- `DIRECTORY` - Path to the date-based directory (format: YYYY MM Month DD [current-name]).
+- `NAME` - New name to append or replace after the date.
+
+**Examples:**
+```bash
+# Add name to unnamed directory
+./parse-pics rename "/pics/2025 12 December 15" "Vacation"
+# Result: /pics/2025 12 December 15 Vacation/
+#         Images: 2025_12_December_15_Vacation_00001.jpg
+
+# Replace existing name
+./parse-pics rename "/pics/2025 12 December 15 OldName" "NewName"
+# Result: /pics/2025 12 December 15 NewName/
+#         Images: 2025_12_December_15_NewName_00001.jpg
+```
 
 ### Environment Variables
 
@@ -75,16 +99,16 @@ make run ARGS="/path/to/source /path/to/target"
 
 ```bash
 # Basic usage with default settings (quality 50)
-./parse-pics /path/to/source /path/to/target
+./parse-pics parse /path/to/source /path/to/target
 
 # Custom compression quality
-RATE=75 ./parse-pics /path/to/source /path/to/target
+RATE=75 ./parse-pics parse /path/to/source /path/to/target
 
 # Enable debug logging
-DEBUG=1 ./parse-pics /path/to/source /path/to/target
+DEBUG=1 ./parse-pics parse /path/to/source /path/to/target
 
 # Combine options
-DEBUG=1 RATE=80 ./parse-pics /path/to/source /path/to/target
+DEBUG=1 RATE=80 ./parse-pics parse /path/to/source /path/to/target
 ```
 
 ## Logging
@@ -117,7 +141,7 @@ Shows detailed operations including individual files:
 
 ```bash
 # Enable with DEBUG environment variable
-DEBUG=1 ./parse-pics /source /target
+DEBUG=1 ./parse-pics parse /source /target
 ```
 
 ```
