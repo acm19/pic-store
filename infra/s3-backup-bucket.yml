@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket for parse-pics backup storage
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket (leave empty for auto-generated name)
+    Default: ''
+
+  EnableVersioning:
+    Type: String
+    Description: Enable versioning for the S3 bucket
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  TransitionToGlacierDays:
+    Type: Number
+    Description: Number of days before transitioning objects to Glacier (0 to disable)
+    Default: 90
+    MinValue: 0
+
+Conditions:
+  HasBucketName: !Not [!Equals [!Ref BucketName, '']]
+  EnableGlacierTransition: !Not [!Equals [!Ref TransitionToGlacierDays, 0]]
+  IsVersioningEnabled: !Equals [!Ref EnableVersioning, 'true']
+
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [HasBucketName, !Ref BucketName, !Ref 'AWS::NoValue']
+      VersioningConfiguration:
+        Status: !If [IsVersioningEnabled, Enabled, Suspended]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToGlacier
+            Status: !If [EnableGlacierTransition, Enabled, Disabled]
+            Transitions:
+              - TransitionInDays: !Ref TransitionToGlacierDays
+                StorageClass: GLACIER
+      Tags:
+        - Key: Purpose
+          Value: parse-pics-backup
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  BucketName:
+    Description: Name of the S3 backup bucket
+    Value: !Ref BackupBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+
+  BucketArn:
+    Description: ARN of the S3 backup bucket
+    Value: !GetAtt BackupBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketArn'
+
+  BucketDomainName:
+    Description: Domain name of the S3 backup bucket
+    Value: !GetAtt BackupBucket.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketDomainName'

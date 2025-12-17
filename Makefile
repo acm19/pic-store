@@ -16,3 +16,32 @@ test:
 .PHONY: clean
 clean:
 	rm -f $(BINARY_NAME)
+
+# Infrastructure targets
+.PHONY: infra-deploy
+infra-deploy:
+	$(MAKE) -C infra deploy
+
+.PHONY: infra-delete
+infra-delete:
+	$(MAKE) -C infra delete
+
+.PHONY: infra-status
+infra-status:
+	$(MAKE) -C infra status
+
+.PHONY: infra-outputs
+infra-outputs:
+	$(MAKE) -C infra outputs
+
+.PHONY: infra-bucket-name
+infra-bucket-name:
+	$(MAKE) -C infra bucket-name
+
+.PHONY: infra-validate
+infra-validate:
+	$(MAKE) -C infra validate
+
+.PHONY: infra-help
+infra-help:
+	$(MAKE) -C infra help
