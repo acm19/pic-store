@@ -11,6 +11,8 @@ A Go application for organising and compressing photos and videos. Replicates th
 - Renames JPEGs sequentially.
 - Preserves file modification times.
 - Structured logging with debug mode.
+- Backup directories to S3 with deduplication (MD5 hash comparison).
+- Restore directories from S3 with date-range filtering.
 
 ## Requirements
 
@@ -132,11 +134,67 @@ Archives are named with image and video counts:
 - `2025 12 December 15 Vacation (42 images, 3 videos).tar.gz`
 - `2025 11 November 20 (15 images, 0 videos).tar.gz`
 
+### Restore directories from S3
+
+```bash
+# Using compiled binary
+./parse-pics restore BUCKET TARGET_DIR
+
+# Using make
+make run ARGS="restore my-backup-bucket /path/to/restore"
+```
+
+**Arguments:**
+- `BUCKET` - S3 bucket name containing the backups.
+- `TARGET_DIR` - Directory where backups will be restored.
+
+**How it works:**
+- Lists all backup archives in the S3 bucket.
+- Filters based on optional date range (year/month).
+- Downloads and extracts archives in parallel (configurable, default 5).
+- Fails if a directory already exists (no overwriting).
+- Automatically cleans up temporary files after extraction.
+- Each archive is extracted to its original directory name (e.g., `2025 12 December 15 Vacation`).
+
+**Date filtering:**
+Use environment variables to filter which backups to restore:
+- `FROM` - Lower bound in format `YYYY` or `MM/YYYY` (e.g., `2024` or `08/2024`). If not set, no lower bound.
+- `TO` - Upper bound in format `YYYY` or `MM/YYYY` (e.g., `2025` or `06/2025`). If not set, no upper bound.
+
+**Examples:**
+```bash
+# Restore all backups
+./parse-pics restore my-backup-bucket /restore
+
+# Restore only 2025 backups
+FROM=2025 TO=2025 ./parse-pics restore my-backup-bucket /restore
+
+# Restore from 2024 onwards (includes all of 2024)
+FROM=2024 ./parse-pics restore my-backup-bucket /restore
+
+# Restore from August 2024 onwards
+FROM=08/2024 ./parse-pics restore my-backup-bucket /restore
+
+# Restore up to June 2025
+TO=06/2025 ./parse-pics restore my-backup-bucket /restore
+
+# Restore specific range: August 2024 to March 2025
+FROM=08/2024 TO=03/2025 ./parse-pics restore my-backup-bucket /restore
+
+# Custom concurrency
+MAX_CONCURRENT=3 ./parse-pics restore my-backup-bucket /restore
+
+# With debug logging
+DEBUG=1 FROM=2025 ./parse-pics restore my-backup-bucket /restore
+```
+
 ### Environment Variables
 
 - `RATE` - JPEG compression quality (0-100, default: 50).
 - `DEBUG` - Enable debug logging (set to any non-empty value).
-- `MAX_CONCURRENT` - Maximum concurrent backup operations for S3 backup (default: 5).
+- `MAX_CONCURRENT` - Maximum concurrent operations for S3 backup/restore (default: 5).
+- `FROM` - Restore filter: lower bound in format `YYYY` or `MM/YYYY` (optional).
+- `TO` - Restore filter: upper bound in format `YYYY` or `MM/YYYY` (optional).
 
 ### Examples
 

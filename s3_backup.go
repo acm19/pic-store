@@ -22,10 +22,20 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// S3Backup defines the interface for backing up directories to S3
+// RestoreFilter defines the date range filter for restoring backups
+type RestoreFilter struct {
+	FromYear  int // 0 means no lower bound
+	FromMonth int // 0 means January if FromYear is set
+	ToYear    int // 0 means no upper bound
+	ToMonth   int // 0 means December if ToYear is set
+}
+
+// S3Backup defines the interface for backing up and restoring directories to/from S3
 type S3Backup interface {
 	// BackupDirectories backs up all subdirectories in the source directory to S3
 	BackupDirectories(sourceDir, bucket string, maxConcurrent int) error
+	// RestoreDirectories restores directories from S3 to target directory
+	RestoreDirectories(bucket, targetDir string, filter RestoreFilter, maxConcurrent int) error
 }
 
 // s3Backup implements the S3Backup interface
@@ -281,6 +291,9 @@ func (b *s3Backup) createTarGz(sourceDir, targetFile string) error {
 	tarWriter := tar.NewWriter(gzWriter)
 	defer tarWriter.Close()
 
+	// Get the base directory name to include in archive paths
+	baseName := filepath.Base(sourceDir)
+
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -292,12 +305,18 @@ func (b *s3Backup) createTarGz(sourceDir, targetFile string) error {
 			return err
 		}
 
-		// Update header name to be relative to source directory
+		// Update header name to include base directory name
 		relPath, err := filepath.Rel(sourceDir, path)
 		if err != nil {
 			return err
 		}
-		header.Name = relPath
+
+		// Include the directory name in the archive path
+		if relPath == "." {
+			header.Name = baseName
+		} else {
+			header.Name = filepath.Join(baseName, relPath)
+		}
 
 		// Write header
 		if err := tarWriter.WriteHeader(header); err != nil {
@@ -339,4 +358,266 @@ func (b *s3Backup) uploadToS3(ctx context.Context, filePath, bucket, key string)
 	})
 
 	return err
+}
+
+// RestoreDirectories restores directories from S3 to target directory
+func (b *s3Backup) RestoreDirectories(bucket, targetDir string, filter RestoreFilter, maxConcurrent int) error {
+	ctx := context.Background()
+
+	// List all objects in bucket
+	logger.Info("Listing objects in S3 bucket", "bucket", bucket)
+	var allObjects []types.Object
+	paginator := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+		allObjects = append(allObjects, page.Contents...)
+	}
+
+	// Filter objects based on date range
+	var objectsToRestore []types.Object
+	for _, obj := range allObjects {
+		if obj.Key == nil {
+			continue
+		}
+		if b.matchesFilter(*obj.Key, filter) {
+			objectsToRestore = append(objectsToRestore, obj)
+		}
+	}
+
+	if len(objectsToRestore) == 0 {
+		logger.Info("No objects found matching filter")
+		return nil
+	}
+
+	logger.Info("Starting restore", "objects", len(objectsToRestore), "target", targetDir, "concurrency", maxConcurrent)
+
+	// Create worker pool
+	jobs := make(chan types.Object, len(objectsToRestore))
+	results := make(chan error, len(objectsToRestore))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := range maxConcurrent {
+		wg.Add(1)
+		go b.restoreWorker(i, bucket, targetDir, jobs, results, &wg)
+	}
+
+	// Send jobs
+	for _, obj := range objectsToRestore {
+		jobs <- obj
+	}
+	close(jobs)
+
+	// Wait for all workers to finish
+	wg.Wait()
+	close(results)
+
+	// Collect errors
+	var errors []error
+	successCount := 0
+	for err := range results {
+		if err != nil {
+			errors = append(errors, err)
+		} else {
+			successCount++
+		}
+	}
+
+	if len(errors) > 0 {
+		logger.Error("Restore completed with errors", "successful", successCount, "failed", len(errors))
+		return fmt.Errorf("restore failed for %d objects", len(errors))
+	}
+
+	logger.Info("Restore completed successfully", "directories_restored", successCount)
+	return nil
+}
+
+// restoreWorker processes restore jobs from the jobs channel
+func (b *s3Backup) restoreWorker(workerID int, bucket, targetDir string, jobs <-chan types.Object, results chan<- error, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for obj := range jobs {
+		logger.Debug("Worker processing object", "worker", workerID, "key", *obj.Key)
+		if err := b.restoreObject(bucket, targetDir, *obj.Key); err != nil {
+			logger.Error("Failed to restore object", "key", *obj.Key, "error", err)
+			results <- fmt.Errorf("object %s: %w", *obj.Key, err)
+		} else {
+			results <- nil
+		}
+	}
+}
+
+// restoreObject downloads and extracts a single object from S3
+func (b *s3Backup) restoreObject(bucket, targetDir, key string) error {
+	ctx := context.Background()
+
+	// Extract directory name from key (remove " (X images, Y videos).tar.gz" suffix)
+	dirName := b.extractDirNameFromKey(key)
+	targetPath := filepath.Join(targetDir, dirName)
+
+	// Check if directory already exists
+	if _, err := os.Stat(targetPath); err == nil {
+		return fmt.Errorf("directory already exists: %s", targetPath)
+	}
+
+	// Create temporary directory for download
+	tmpDir := fmt.Sprintf("/tmp/pics_restore_%d", rand.Int())
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer func() {
+		logger.Debug("Cleaning up temporary directory", "path", tmpDir)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			logger.Error("Failed to remove temporary directory", "path", tmpDir, "error", err)
+		}
+	}()
+
+	// Download from S3
+	archivePath := filepath.Join(tmpDir, filepath.Base(key))
+	logger.Info("Downloading from S3", "key", key, "target", archivePath)
+
+	result, err := b.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to download from S3: %w", err)
+	}
+	defer result.Body.Close()
+
+	file, err := os.Create(archivePath)
+	if err != nil {
+		return fmt.Errorf("failed to create archive file: %w", err)
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(file, result.Body); err != nil {
+		return fmt.Errorf("failed to write archive: %w", err)
+	}
+	file.Close()
+
+	// Extract tar.gz
+	logger.Info("Extracting archive", "archive", archivePath, "target", targetDir)
+	if err := b.extractTarGz(archivePath, targetDir); err != nil {
+		return fmt.Errorf("failed to extract archive: %w", err)
+	}
+
+	logger.Info("Successfully restored directory", "directory", dirName)
+	return nil
+}
+
+// matchesFilter checks if an S3 key matches the date filter
+func (b *s3Backup) matchesFilter(key string, filter RestoreFilter) bool {
+	// Parse year and month from key (format: "YYYY MM Month DD ...")
+	parts := strings.Fields(key)
+	if len(parts) < 2 {
+		return false
+	}
+
+	year := 0
+	month := 0
+	fmt.Sscanf(parts[0], "%d", &year)
+	fmt.Sscanf(parts[1], "%d", &month)
+
+	if year == 0 || month == 0 {
+		return false
+	}
+
+	// Check lower bound
+	if filter.FromYear > 0 {
+		fromMonth := filter.FromMonth
+		if fromMonth == 0 {
+			fromMonth = 1 // Default to January
+		}
+		if year < filter.FromYear || (year == filter.FromYear && month < fromMonth) {
+			return false
+		}
+	}
+
+	// Check upper bound
+	if filter.ToYear > 0 {
+		toMonth := filter.ToMonth
+		if toMonth == 0 {
+			toMonth = 12 // Default to December
+		}
+		if year > filter.ToYear || (year == filter.ToYear && month > toMonth) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// extractDirNameFromKey extracts directory name from S3 key
+func (b *s3Backup) extractDirNameFromKey(key string) string {
+	// Remove ".tar.gz" extension
+	name := strings.TrimSuffix(key, ".tar.gz")
+	// Remove " (X images, Y videos)" suffix
+	if idx := strings.Index(name, " ("); idx != -1 {
+		name = name[:idx]
+	}
+	return name
+}
+
+// extractTarGz extracts a tar.gz archive to a target directory
+func (b *s3Backup) extractTarGz(archivePath, targetDir string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		targetPath := filepath.Join(targetDir, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			// Ensure parent directory exists
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return err
+			}
+
+			outFile, err := os.Create(targetPath)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outFile, tarReader); err != nil {
+				outFile.Close()
+				return err
+			}
+			outFile.Close()
+
+			// Restore file permissions
+			if err := os.Chmod(targetPath, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
