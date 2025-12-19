@@ -55,21 +55,27 @@ This creates a `parse-pics` binary in the current directory.
 ### Parse and organise media files
 
 ```bash
-# Using compiled binary
+# Basic usage with default settings (quality 50)
 ./parse-pics parse SOURCE_DIR TARGET_DIR
 
+# Custom compression quality
+./parse-pics parse SOURCE_DIR TARGET_DIR --rate 75
+./parse-pics parse SOURCE_DIR TARGET_DIR -r 75
+
 # Using make
-make run ARGS="parse /path/to/source /path/to/target"
+make run ARGS="parse /path/to/source /path/to/target --rate 75"
 ```
 
 **Arguments:**
 - `SOURCE_DIR` - Directory containing subdirectories with media files.
 - `TARGET_DIR` - Directory where organised files will be placed.
 
+**Flags:**
+- `--rate, -r` - JPEG compression quality (0-100, default: 50).
+
 ### Rename a date-based directory
 
 ```bash
-# Using compiled binary
 ./parse-pics rename DIRECTORY NAME
 
 # Using make
@@ -96,16 +102,23 @@ make run ARGS="rename '/path/to/2025 12 December 15' Vacation"
 ### Backup directories to S3
 
 ```bash
-# Using compiled binary
+# Basic backup with default concurrency (5)
 ./parse-pics backup SOURCE_DIR BUCKET
 
+# Custom concurrency level
+./parse-pics backup SOURCE_DIR BUCKET --max-concurrent 3
+./parse-pics backup SOURCE_DIR BUCKET -c 3
+
 # Using make
-make run ARGS="backup /path/to/organised/pics my-backup-bucket"
+make run ARGS="backup /path/to/organised/pics my-backup-bucket --max-concurrent 3"
 ```
 
 **Arguments:**
 - `SOURCE_DIR` - Directory containing date-based subdirectories to backup.
 - `BUCKET` - S3 bucket name where archives will be uploaded.
+
+**Flags:**
+- `--max-concurrent, -c` - Maximum concurrent operations (default: 5).
 
 **How it works:**
 - Creates tar.gz archives of each subdirectory in a temporary location (`/tmp/<random>_pic`).
@@ -117,18 +130,6 @@ make run ARGS="backup /path/to/organised/pics my-backup-bucket"
 - Processes directories in parallel (configurable, default 5).
 - Automatically cleans up temporary files after each upload.
 
-**Examples:**
-```bash
-# Basic backup with default concurrency (5)
-./parse-pics backup /pics/organised my-backup-bucket
-
-# Custom concurrency level
-MAX_CONCURRENT=3 ./parse-pics backup /pics/organised my-backup-bucket
-
-# With debug logging
-DEBUG=1 ./parse-pics backup /pics/organised my-backup-bucket
-```
-
 **S3 object naming:**
 Archives are named with image and video counts:
 - `2025 12 December 15 Vacation (42 images, 3 videos).tar.gz`
@@ -137,16 +138,36 @@ Archives are named with image and video counts:
 ### Restore directories from S3
 
 ```bash
-# Using compiled binary
+# Restore all backups
 ./parse-pics restore BUCKET TARGET_DIR
 
+# Restore only 2025 backups
+./parse-pics restore BUCKET TARGET_DIR --from 2025 --to 2025
+
+# Restore from August 2024 onwards
+./parse-pics restore BUCKET TARGET_DIR --from 08/2024
+
+# Restore up to June 2025
+./parse-pics restore BUCKET TARGET_DIR --to 06/2025
+
+# Restore specific range: August 2024 to March 2025
+./parse-pics restore BUCKET TARGET_DIR --from 08/2024 --to 03/2025
+
+# Custom concurrency
+./parse-pics restore BUCKET TARGET_DIR --max-concurrent 3 -c 3
+
 # Using make
-make run ARGS="restore my-backup-bucket /path/to/restore"
+make run ARGS="restore my-backup-bucket /path/to/restore --from 2024 --to 2025"
 ```
 
 **Arguments:**
 - `BUCKET` - S3 bucket name containing the backups.
 - `TARGET_DIR` - Directory where backups will be restored.
+
+**Flags:**
+- `--from` - Lower bound in format `YYYY` or `MM/YYYY` (e.g., `2024` or `08/2024`). If not set, no lower bound.
+- `--to` - Upper bound in format `YYYY` or `MM/YYYY` (e.g., `2025` or `06/2025`). If not set, no upper bound.
+- `--max-concurrent, -c` - Maximum concurrent operations (default: 5).
 
 **How it works:**
 - Lists all backup archives in the S3 bucket.
@@ -156,60 +177,20 @@ make run ARGS="restore my-backup-bucket /path/to/restore"
 - Automatically cleans up temporary files after extraction.
 - Each archive is extracted to its original directory name (e.g., `2025 12 December 15 Vacation`).
 
-**Date filtering:**
-Use environment variables to filter which backups to restore:
-- `FROM` - Lower bound in format `YYYY` or `MM/YYYY` (e.g., `2024` or `08/2024`). If not set, no lower bound.
-- `TO` - Upper bound in format `YYYY` or `MM/YYYY` (e.g., `2025` or `06/2025`). If not set, no upper bound.
+### Environment Variables
+
+- `DEBUG` - Enable debug logging (set to any non-empty value).
 
 **Examples:**
 ```bash
-# Restore all backups
-./parse-pics restore my-backup-bucket /restore
-
-# Restore only 2025 backups
-FROM=2025 TO=2025 ./parse-pics restore my-backup-bucket /restore
-
-# Restore from 2024 onwards (includes all of 2024)
-FROM=2024 ./parse-pics restore my-backup-bucket /restore
-
-# Restore from August 2024 onwards
-FROM=08/2024 ./parse-pics restore my-backup-bucket /restore
-
-# Restore up to June 2025
-TO=06/2025 ./parse-pics restore my-backup-bucket /restore
-
-# Restore specific range: August 2024 to March 2025
-FROM=08/2024 TO=03/2025 ./parse-pics restore my-backup-bucket /restore
-
-# Custom concurrency
-MAX_CONCURRENT=3 ./parse-pics restore my-backup-bucket /restore
-
-# With debug logging
-DEBUG=1 FROM=2025 ./parse-pics restore my-backup-bucket /restore
-```
-
-### Environment Variables
-
-- `RATE` - JPEG compression quality (0-100, default: 50).
-- `DEBUG` - Enable debug logging (set to any non-empty value).
-- `MAX_CONCURRENT` - Maximum concurrent operations for S3 backup/restore (default: 5).
-- `FROM` - Restore filter: lower bound in format `YYYY` or `MM/YYYY` (optional).
-- `TO` - Restore filter: upper bound in format `YYYY` or `MM/YYYY` (optional).
-
-### Examples
-
-```bash
-# Basic usage with default settings (quality 50)
-./parse-pics parse /path/to/source /path/to/target
-
-# Custom compression quality
-RATE=75 ./parse-pics parse /path/to/source /path/to/target
-
 # Enable debug logging
-DEBUG=1 ./parse-pics parse /path/to/source /path/to/target
+DEBUG=1 ./parse-pics parse /source /target
 
-# Combine options
-DEBUG=1 RATE=80 ./parse-pics parse /path/to/source /path/to/target
+# Debug with backup
+DEBUG=1 ./parse-pics backup /pics/organised my-backup-bucket
+
+# Debug with restore
+DEBUG=1 ./parse-pics restore my-backup-bucket /restore --from 2025
 ```
 
 ## Logging

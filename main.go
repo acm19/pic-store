@@ -6,52 +6,80 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
+var rootCmd = &cobra.Command{
+	Use:   "parse-pics",
+	Short: "A Go application for organising and compressing photos and videos",
+	Long:  `Parse Pics helps you organize media files, compress images, and backup/restore to S3.`,
+}
+
+var parseCmd = &cobra.Command{
+	Use:   "parse SOURCE_DIR TARGET_DIR",
+	Short: "Process and organise media files",
+	Long:  `Copies media files from source subdirectories, optionally compresses JPEGs, and organises into date-based directories.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runParse,
+}
+
+var renameCmd = &cobra.Command{
+	Use:   "rename DIRECTORY NAME",
+	Short: "Rename a date-based directory and its images",
+	Long:  `Renames a date-based directory (format: YYYY MM Month DD [current-name]) and updates all image filenames.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runRename,
+}
+
+var backupCmd = &cobra.Command{
+	Use:   "backup SOURCE_DIR BUCKET",
+	Short: "Backup directories to S3",
+	Long:  `Creates tar.gz archives of each subdirectory and uploads to S3 with deduplication (MD5 hash comparison).`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runBackup,
+}
+
+var restoreCmd = &cobra.Command{
+	Use:   "restore BUCKET TARGET_DIR",
+	Short: "Restore directories from S3",
+	Long:  `Downloads and extracts backup archives from S3 with optional date-range filtering.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runRestore,
+}
+
+var (
+	jpegQuality   int
+	maxConcurrent int
+	fromFilter    string
+	toFilter      string
+)
+
+func init() {
+	// Parse command flags
+	parseCmd.Flags().IntVarP(&jpegQuality, "rate", "r", 50, "JPEG compression quality (0-100)")
+
+	// Backup command flags
+	backupCmd.Flags().IntVarP(&maxConcurrent, "max-concurrent", "c", 5, "Maximum concurrent operations")
+
+	// Restore command flags
+	restoreCmd.Flags().IntVarP(&maxConcurrent, "max-concurrent", "c", 5, "Maximum concurrent operations")
+	restoreCmd.Flags().StringVar(&fromFilter, "from", "", "Lower bound in format YYYY or MM/YYYY")
+	restoreCmd.Flags().StringVar(&toFilter, "to", "", "Upper bound in format YYYY or MM/YYYY")
+
+	// Add all subcommands
+	rootCmd.AddCommand(parseCmd, renameCmd, backupCmd, restoreCmd)
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
-	}
-
-	command := os.Args[1]
-
-	switch command {
-	case "parse":
-		parse()
-	case "rename":
-		rename()
-	case "backup":
-		backup()
-	case "restore":
-		restore()
-	default:
-		printUsage()
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	fmt.Fprintf(os.Stderr, `Usage:
-  %s parse SOURCE_DIR TARGET_DIR         Process and organise media files
-  %s rename DIRECTORY NAME               Rename a date-based directory and its images
-  %s backup SOURCE_DIR BUCKET            Backup directories to S3
-  %s restore BUCKET TARGET_DIR [OPTIONS] Restore directories from S3
-
-Restore options (environment variables):
-  FROM=YYYY or MM/YYYY    Lower bound (optional)
-  TO=YYYY or MM/YYYY      Upper bound (optional)
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
-}
-
-func parse() {
-	if len(os.Args) != 4 {
-		logger.Error("Invalid arguments", "usage", os.Args[0]+" parse SOURCE_DIR TARGET_DIR")
-		os.Exit(1)
-	}
-
-	sourceDir := os.Args[2]
-	targetDir := os.Args[3]
+func runParse(cmd *cobra.Command, args []string) {
+	sourceDir := args[0]
+	targetDir := args[1]
 
 	parser := NewMediaParser()
 	if err := parser.ValidateDirectories(sourceDir, targetDir); err != nil {
@@ -60,14 +88,7 @@ func parse() {
 	}
 
 	opts := DefaultParseOptions()
-	if rate := os.Getenv("RATE"); rate != "" {
-		quality, err := strconv.Atoi(rate)
-		if err != nil {
-			logger.Error("Invalid RATE value", "rate", rate, "error", err)
-			os.Exit(1)
-		}
-		opts.JPEGQuality = quality
-	}
+	opts.JPEGQuality = jpegQuality
 
 	sourceCount, err := parser.GetFileCount(sourceDir)
 	if err != nil {
@@ -95,14 +116,9 @@ func parse() {
 	logger.Info("Processing completed successfully", "files_processed", sourceCount, "verification", "source and target file counts match")
 }
 
-func rename() {
-	if len(os.Args) != 4 {
-		logger.Error("Invalid arguments", "usage", os.Args[0]+" rename DIRECTORY NAME")
-		os.Exit(1)
-	}
-
-	directory := os.Args[2]
-	newName := os.Args[3]
+func runRename(cmd *cobra.Command, args []string) {
+	directory := args[0]
+	newName := args[1]
 
 	organiser := NewFileOrganiser()
 	if err := organiser.RenameDirectory(directory, newName); err != nil {
@@ -113,25 +129,9 @@ func rename() {
 	logger.Info("Rename completed successfully")
 }
 
-func backup() {
-	if len(os.Args) != 4 {
-		logger.Error("Invalid arguments", "usage", os.Args[0]+" backup SOURCE_DIR BUCKET")
-		os.Exit(1)
-	}
-
-	sourceDir := os.Args[2]
-	bucket := os.Args[3]
-
-	// Get max concurrent workers from environment variable, default to 5
-	maxConcurrent := 5
-	if concurrency := os.Getenv("MAX_CONCURRENT"); concurrency != "" {
-		parsedConcurrency, err := strconv.Atoi(concurrency)
-		if err != nil {
-			logger.Error("Invalid MAX_CONCURRENT value", "value", concurrency, "error", err)
-			os.Exit(1)
-		}
-		maxConcurrent = parsedConcurrency
-	}
+func runBackup(cmd *cobra.Command, args []string) {
+	sourceDir := args[0]
+	bucket := args[1]
 
 	// Validate source directory exists
 	if info, err := os.Stat(sourceDir); err != nil {
@@ -159,43 +159,27 @@ func backup() {
 	logger.Info("Backup completed successfully")
 }
 
-func restore() {
-	if len(os.Args) != 4 {
-		logger.Error("Invalid arguments", "usage", os.Args[0]+" restore BUCKET TARGET_DIR")
-		os.Exit(1)
-	}
+func runRestore(cmd *cobra.Command, args []string) {
+	bucket := args[0]
+	targetDir := args[1]
 
-	bucket := os.Args[2]
-	targetDir := os.Args[3]
-
-	// Get max concurrent workers from environment variable, default to 5
-	maxConcurrent := 5
-	if concurrency := os.Getenv("MAX_CONCURRENT"); concurrency != "" {
-		parsedConcurrency, err := strconv.Atoi(concurrency)
-		if err != nil {
-			logger.Error("Invalid MAX_CONCURRENT value", "value", concurrency, "error", err)
-			os.Exit(1)
-		}
-		maxConcurrent = parsedConcurrency
-	}
-
-	// Parse filter from environment variables
+	// Parse filter
 	var filter RestoreFilter
 
-	if fromStr := os.Getenv("FROM"); fromStr != "" {
-		year, month, err := parseYearMonth(fromStr)
+	if fromFilter != "" {
+		year, month, err := parseYearMonth(fromFilter)
 		if err != nil {
-			logger.Error("Invalid FROM value (expected YYYY or MM/YYYY)", "value", fromStr, "error", err)
+			logger.Error("Invalid FROM value (expected YYYY or MM/YYYY)", "value", fromFilter, "error", err)
 			os.Exit(1)
 		}
 		filter.FromYear = year
 		filter.FromMonth = month
 	}
 
-	if toStr := os.Getenv("TO"); toStr != "" {
-		year, month, err := parseYearMonth(toStr)
+	if toFilter != "" {
+		year, month, err := parseYearMonth(toFilter)
 		if err != nil {
-			logger.Error("Invalid TO value (expected YYYY or MM/YYYY)", "value", toStr, "error", err)
+			logger.Error("Invalid TO value (expected YYYY or MM/YYYY)", "value", toFilter, "error", err)
 			os.Exit(1)
 		}
 		filter.ToYear = year
