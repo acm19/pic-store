@@ -6,9 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/barasher/go-exiftool"
 )
 
 var (
@@ -27,89 +24,15 @@ type FileOrganiser interface {
 }
 
 // fileOrganiser implements the FileOrganiser interface
-type fileOrganiser struct{}
+type fileOrganiser struct {
+	dateExtractor *AggregatedFileDateExtractor
+}
 
 // NewFileOrganiser creates a new FileOrganiser instance
 func NewFileOrganiser() FileOrganiser {
-	return &fileOrganiser{}
-}
-
-// getFileDate extracts the creation date from EXIF/metadata if available, otherwise falls back to file modification time
-// Works for both images (JPG, HEIC) and videos (MOV)
-func getFileDate(filePath string) (time.Time, error) {
-	// Try to extract EXIF date first
-	et, err := exiftool.NewExiftool()
-	if err != nil {
-		// If exiftool is not available, fall back to ModTime
-		logger.Debug("exiftool not available, using ModTime", "error", err)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return time.Time{}, statErr
-		}
-		return info.ModTime(), nil
+	return &fileOrganiser{
+		dateExtractor: NewFileDateExtractor(),
 	}
-	defer et.Close()
-
-	fileInfos := et.ExtractMetadata(filePath)
-	if len(fileInfos) == 0 {
-		// No metadata found, fall back to ModTime
-		logger.Debug("No EXIF metadata found, using ModTime", "file", filePath)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return time.Time{}, statErr
-		}
-		return info.ModTime(), nil
-	}
-
-	fileInfo := fileInfos[0]
-	if fileInfo.Err != nil {
-		// Error reading EXIF, fall back to ModTime
-		logger.Debug("Error reading EXIF, using ModTime", "file", filePath, "error", fileInfo.Err)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return time.Time{}, statErr
-		}
-		return info.ModTime(), nil
-	}
-
-	// Try date fields in order of preference: CreationDate first, then CreateDate
-	var dateStr string
-	var found bool
-	var fieldName string
-
-	dateFields := []string{"CreationDate", "CreateDate"}
-	for _, field := range dateFields {
-		if val, err := fileInfo.GetString(field); err == nil {
-			dateStr = val
-			fieldName = field
-			found = true
-			logger.Debug("Using EXIF date field", "file", filepath.Base(filePath), "field", fieldName, "date", dateStr)
-			break
-		}
-	}
-
-	if !found {
-		// No EXIF date found, fall back to ModTime
-		logger.Debug("No EXIF date found, using ModTime", "file", filePath)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return time.Time{}, statErr
-		}
-		return info.ModTime(), nil
-	}
-
-	// Parse the EXIF date string (format: "2006:01:02 15:04:05")
-	parsedTime, err := time.Parse("2006:01:02 15:04:05", dateStr)
-	if err != nil {
-		logger.Debug("Failed to parse EXIF date, using ModTime", "file", filePath, "date", dateStr, "error", err)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return time.Time{}, statErr
-		}
-		return info.ModTime(), nil
-	}
-
-	return parsedTime, nil
 }
 
 // OrganiseByDate moves files to date-based directories
@@ -125,7 +48,7 @@ func (o *fileOrganiser) OrganiseByDate(sourceDir, targetDir string) error {
 		filePath := filepath.Join(sourceDir, entry.Name())
 
 		// Get file date from EXIF if available, otherwise use ModTime
-		fileDate, err := getFileDate(filePath)
+		fileDate, err := o.dateExtractor.GetFileDate(filePath)
 		if err != nil {
 			return err
 		}
