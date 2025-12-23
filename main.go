@@ -90,7 +90,8 @@ func runParse(cmd *cobra.Command, args []string) {
 	opts := DefaultParseOptions()
 	opts.JPEGQuality = jpegQuality
 
-	sourceCount, err := parser.GetFileCount(sourceDir)
+	organiser := NewFileOrganiser()
+	sourceCount, err := organiser.GetFileCount(sourceDir)
 	if err != nil {
 		logger.Error("Error counting source files", "error", err)
 		os.Exit(1)
@@ -102,7 +103,7 @@ func runParse(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	targetCount, err := parser.GetFileCount(targetDir)
+	targetCount, err := organiser.GetFileCount(targetDir)
 	if err != nil {
 		logger.Error("Error counting target files", "error", err)
 		os.Exit(1)

@@ -16,8 +16,6 @@ type MediaParser interface {
 	Parse(sourceDir, targetDir string, opts ParseOptions) error
 	// ValidateDirectories checks if source and target directories exist
 	ValidateDirectories(sourceDir, targetDir string) error
-	// GetFileCount returns the number of files in a directory recursively
-	GetFileCount(dir string) (int, error)
 }
 
 // ParseOptions holds configuration options for parsing
@@ -253,28 +251,4 @@ func copyFilePreserveTime(src, dst string) error {
 
 	logger.Debug("Modification time preserved", "file", dst, "modTime", srcInfo.ModTime())
 	return nil
-}
-
-// GetFileCount returns the number of files in a directory recursively (excluding dot files)
-func (p *mediaParser) GetFileCount(dir string) (int, error) {
-	count := 0
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip dot files and dot directories
-		if strings.HasPrefix(info.Name(), ".") {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if !info.IsDir() {
-			count++
-		}
-		return nil
-	})
-	return count, err
 }
