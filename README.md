@@ -1,6 +1,6 @@
 # Parse Pics
 
-[![Build Status](https://github.com/acm19/pic-store/actions/badge.svg)](https://github.com/acm19/pic-store/actions)
+[![Tests](https://github.com/acm19/pic-store/actions/workflows/test.yml/badge.svg)](https://github.com/acm19/pic-store/actions/workflows/test.yml)
 [![codecov](https://codecov.io/github/acm19/pic-store/graph/badge.svg?token=NGC1P4AZLU)](https://codecov.io/github/acm19/pic-store)
 
 A Go application for organising and compressing photos and videos. Replicates the functionality of the original `parse-pics.sh` bash script with improved error handling and structured logging.
