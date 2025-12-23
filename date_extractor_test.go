@@ -7,21 +7,34 @@ import (
 	"time"
 )
 
-func TestModTimeExtractor_GetFileDate(t *testing.T) {
-	// Create a temporary test file
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "test.txt")
+// Helper functions
 
-	// Create file with specific modification time
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+func createTestFileWithTime(t *testing.T, dir, filename string, modTime time.Time) string {
+	t.Helper()
+	filePath := filepath.Join(dir, filename)
+	if err := os.WriteFile(filePath, []byte("test content"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-
-	// Set specific modification time
-	testTime := time.Date(2023, 6, 15, 10, 30, 0, 0, time.UTC)
-	if err := os.Chtimes(testFile, testTime, testTime); err != nil {
+	if err := os.Chtimes(filePath, modTime, modTime); err != nil {
 		t.Fatalf("Failed to set file times: %v", err)
 	}
+	return filePath
+}
+
+func assertTimeEqual(t *testing.T, expected, actual time.Time) {
+	t.Helper()
+	// Compare with truncation to second precision (file systems may not preserve nanoseconds)
+	if !actual.Truncate(time.Second).Equal(expected.Truncate(time.Second)) {
+		t.Errorf("Expected time %v, got %v", expected, actual)
+	}
+}
+
+func TestModTimeExtractor_GetFileDate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file with specific modification time
+	testTime := time.Date(2023, 6, 15, 10, 30, 0, 0, time.UTC)
+	testFile := createTestFileWithTime(t, tmpDir, "test.txt", testTime)
 
 	// Test the extractor
 	extractor := newModTimeExtractor()
@@ -31,10 +44,8 @@ func TestModTimeExtractor_GetFileDate(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	// Compare with truncation to second precision (file systems may not preserve nanoseconds)
-	if !result.Truncate(time.Second).Equal(testTime.Truncate(time.Second)) {
-		t.Errorf("Expected time %v, got %v", testTime, result)
-	}
+	// Verify the modification time is correct
+	assertTimeEqual(t, testTime, result)
 }
 
 func TestModTimeExtractor_GetFileDate_NonexistentFile(t *testing.T) {
@@ -61,20 +72,11 @@ func TestExifDateExtractor_Name(t *testing.T) {
 }
 
 func TestAggregatedFileDateExtractor_FallbackToModTime(t *testing.T) {
-	// Create a temporary test file without EXIF data
 	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "test.txt")
 
-	// Create file with specific modification time
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-
-	// Set specific modification time
+	// Create a file without EXIF data
 	testTime := time.Date(2023, 6, 15, 10, 30, 0, 0, time.UTC)
-	if err := os.Chtimes(testFile, testTime, testTime); err != nil {
-		t.Fatalf("Failed to set file times: %v", err)
-	}
+	testFile := createTestFileWithTime(t, tmpDir, "test.txt", testTime)
 
 	// Test the aggregated extractor
 	extractor := NewFileDateExtractor()
@@ -85,9 +87,7 @@ func TestAggregatedFileDateExtractor_FallbackToModTime(t *testing.T) {
 	}
 
 	// Should fall back to ModTime since there's no EXIF data
-	if !result.Truncate(time.Second).Equal(testTime.Truncate(time.Second)) {
-		t.Errorf("Expected time %v, got %v", testTime, result)
-	}
+	assertTimeEqual(t, testTime, result)
 }
 
 func TestAggregatedFileDateExtractor_NonexistentFile(t *testing.T) {

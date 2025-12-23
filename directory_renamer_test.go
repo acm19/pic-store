@@ -6,7 +6,8 @@ import (
 	"testing"
 )
 
-// createTestDirectory creates a test directory with the given name
+// Helper functions
+
 func createTestDirectory(t *testing.T, parentDir, dirName string) string {
 	t.Helper()
 	dirPath := filepath.Join(parentDir, dirName)
@@ -16,7 +17,6 @@ func createTestDirectory(t *testing.T, parentDir, dirName string) string {
 	return dirPath
 }
 
-// createTestImage creates a test image file in the given directory
 func createTestImage(t *testing.T, dir, filename string) string {
 	t.Helper()
 	filePath := filepath.Join(dir, filename)
@@ -26,7 +26,6 @@ func createTestImage(t *testing.T, dir, filename string) string {
 	return filePath
 }
 
-// createTestVideo creates a test video file in the given directory
 func createTestVideo(t *testing.T, dir, filename string) string {
 	t.Helper()
 	filePath := filepath.Join(dir, filename)
@@ -34,6 +33,23 @@ func createTestVideo(t *testing.T, dir, filename string) string {
 		t.Fatalf("Failed to create video %s: %v", filePath, err)
 	}
 	return filePath
+}
+
+func assertDirExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("Expected directory to exist at %s", path)
+	}
+}
+
+func assertFilesExist(t *testing.T, dir string, filenames []string) {
+	t.Helper()
+	for _, filename := range filenames {
+		filePath := filepath.Join(dir, filename)
+		if _, err := os.Stat(filePath); err != nil {
+			t.Errorf("Expected file %s to exist", filename)
+		}
+	}
 }
 
 func TestNewDirectoryRenamer(t *testing.T) {
@@ -54,6 +70,7 @@ func TestDirectoryRenamer_RenameDirectory_WithImages(t *testing.T) {
 	createTestImage(t, testDir, "img2.JPG")
 	createTestImage(t, testDir, "img3.jpeg")
 
+	// Rename directory
 	renamer := NewDirectoryRenamer()
 	err := renamer.RenameDirectory(testDir, "vacation")
 
@@ -63,9 +80,7 @@ func TestDirectoryRenamer_RenameDirectory_WithImages(t *testing.T) {
 
 	// Check that directory was renamed
 	newDirPath := filepath.Join(tmpDir, "2023 06 June 15 vacation")
-	if _, err := os.Stat(newDirPath); err != nil {
-		t.Errorf("Expected directory to exist at %s", newDirPath)
-	}
+	assertDirExists(t, newDirPath)
 
 	// Check that images were renamed
 	expectedFiles := []string{
@@ -73,28 +88,21 @@ func TestDirectoryRenamer_RenameDirectory_WithImages(t *testing.T) {
 		"2023_06_June_15_vacation_00002.jpg",
 		"2023_06_June_15_vacation_00003.jpeg",
 	}
-
-	for _, filename := range expectedFiles {
-		filePath := filepath.Join(newDirPath, filename)
-		if _, err := os.Stat(filePath); err != nil {
-			t.Errorf("Expected file %s to exist", filename)
-		}
-	}
+	assertFilesExist(t, newDirPath, expectedFiles)
 }
 
 func TestDirectoryRenamer_RenameDirectory_WithVideos(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a test directory
+	// Create a test directory with videos subdirectory
 	testDir := createTestDirectory(t, tmpDir, "2023 06 June 15")
-
-	// Create videos subdirectory
 	videosDir := createTestDirectory(t, testDir, "videos")
 
 	// Create test videos
 	createTestVideo(t, videosDir, "vid1.mov")
 	createTestVideo(t, videosDir, "vid2.MOV")
 
+	// Rename directory
 	renamer := NewDirectoryRenamer()
 	err := renamer.RenameDirectory(testDir, "trip")
 
@@ -104,9 +112,7 @@ func TestDirectoryRenamer_RenameDirectory_WithVideos(t *testing.T) {
 
 	// Check that directory was renamed
 	newDirPath := filepath.Join(tmpDir, "2023 06 June 15 trip")
-	if _, err := os.Stat(newDirPath); err != nil {
-		t.Errorf("Expected directory to exist at %s", newDirPath)
-	}
+	assertDirExists(t, newDirPath)
 
 	// Check that videos were renamed
 	newVideosDir := filepath.Join(newDirPath, "videos")
@@ -114,13 +120,7 @@ func TestDirectoryRenamer_RenameDirectory_WithVideos(t *testing.T) {
 		"2023_06_June_15_trip_00001.mov",
 		"2023_06_June_15_trip_00002.MOV",
 	}
-
-	for _, filename := range expectedFiles {
-		filePath := filepath.Join(newVideosDir, filename)
-		if _, err := os.Stat(filePath); err != nil {
-			t.Errorf("Expected file %s to exist", filename)
-		}
-	}
+	assertFilesExist(t, newVideosDir, expectedFiles)
 }
 
 func TestDirectoryRenamer_RenameDirectory_WithImagesAndVideos(t *testing.T) {
@@ -137,6 +137,7 @@ func TestDirectoryRenamer_RenameDirectory_WithImagesAndVideos(t *testing.T) {
 	videosDir := createTestDirectory(t, testDir, "videos")
 	createTestVideo(t, videosDir, "vid1.mov")
 
+	// Rename directory
 	renamer := NewDirectoryRenamer()
 	err := renamer.RenameDirectory(testDir, "christmas")
 
@@ -146,28 +147,18 @@ func TestDirectoryRenamer_RenameDirectory_WithImagesAndVideos(t *testing.T) {
 
 	// Check that directory was renamed
 	newDirPath := filepath.Join(tmpDir, "2023 12 December 25 christmas")
-	if _, err := os.Stat(newDirPath); err != nil {
-		t.Errorf("Expected directory to exist at %s", newDirPath)
-	}
+	assertDirExists(t, newDirPath)
 
-	// Check images
+	// Check images were renamed
 	expectedImages := []string{
 		"2023_12_December_25_christmas_00001.jpg",
 		"2023_12_December_25_christmas_00002.heic",
 	}
-	for _, filename := range expectedImages {
-		filePath := filepath.Join(newDirPath, filename)
-		if _, err := os.Stat(filePath); err != nil {
-			t.Errorf("Expected image %s to exist", filename)
-		}
-	}
+	assertFilesExist(t, newDirPath, expectedImages)
 
-	// Check videos
+	// Check videos were renamed
 	newVideosDir := filepath.Join(newDirPath, "videos")
-	expectedVideo := filepath.Join(newVideosDir, "2023_12_December_25_christmas_00001.mov")
-	if _, err := os.Stat(expectedVideo); err != nil {
-		t.Errorf("Expected video to exist at %s", expectedVideo)
-	}
+	assertFilesExist(t, newVideosDir, []string{"2023_12_December_25_christmas_00001.mov"})
 }
 
 func TestDirectoryRenamer_RenameDirectory_EmptyName(t *testing.T) {
