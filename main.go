@@ -143,16 +143,16 @@ func runBackup(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create S3 backup instance
+	// Create backup instance
 	ctx := context.Background()
-	s3Backup, err := NewS3Backup(ctx)
+	backup, err := NewS3Backup(ctx)
 	if err != nil {
-		logger.Error("Failed to initialize S3 client", "error", err)
+		logger.Error("Failed to initialize backup", "error", err)
 		os.Exit(1)
 	}
 
 	logger.Info("Starting backup", "source", sourceDir, "bucket", bucket, "max_concurrent", maxConcurrent)
-	if err := s3Backup.BackupDirectories(sourceDir, bucket, maxConcurrent); err != nil {
+	if err := backup.BackupDirectories(sourceDir, bucket, maxConcurrent); err != nil {
 		logger.Error("Backup failed", "error", err)
 		os.Exit(1)
 	}
@@ -196,16 +196,16 @@ func runRestore(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create S3 backup instance
+	// Create backup instance
 	ctx := context.Background()
-	s3Backup, err := NewS3Backup(ctx)
+	backup, err := NewS3Backup(ctx)
 	if err != nil {
-		logger.Error("Failed to initialize S3 client", "error", err)
+		logger.Error("Failed to initialize backup", "error", err)
 		os.Exit(1)
 	}
 
 	logger.Info("Starting restore", "bucket", bucket, "target", targetDir, "max_concurrent", maxConcurrent, "filter", filter)
-	if err := s3Backup.RestoreDirectories(bucket, targetDir, filter, maxConcurrent); err != nil {
+	if err := backup.RestoreDirectories(bucket, targetDir, filter, maxConcurrent); err != nil {
 		logger.Error("Restore failed", "error", err)
 		os.Exit(1)
 	}

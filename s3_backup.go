@@ -35,22 +35,22 @@ type RestoreFilter struct {
 	ToMonth   int // 0 means December if ToYear is set
 }
 
-// S3Backup defines the interface for backing up and restoring directories to/from S3
-type S3Backup interface {
-	// BackupDirectories backs up all subdirectories in the source directory to S3
+// Backup defines the interface for backing up and restoring directories
+type Backup interface {
+	// BackupDirectories backs up all subdirectories in the source directory
 	BackupDirectories(sourceDir, bucket string, maxConcurrent int) error
-	// RestoreDirectories restores directories from S3 to target directory
+	// RestoreDirectories restores directories to target directory
 	RestoreDirectories(bucket, targetDir string, filter RestoreFilter, maxConcurrent int) error
 }
 
-// s3Backup implements the S3Backup interface
+// s3Backup implements the Backup interface for AWS S3
 type s3Backup struct {
 	client     *s3.Client
 	extensions Extensions
 }
 
-// NewS3Backup creates a new S3Backup instance
-func NewS3Backup(ctx context.Context) (S3Backup, error) {
+// NewS3Backup creates a new S3 Backup instance
+func NewS3Backup(ctx context.Context) (Backup, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
