@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -47,9 +48,12 @@ func TestCreateTempDir(t *testing.T) {
 func TestRunWorkerPool(t *testing.T) {
 	jobs := []int{1, 2, 3, 4, 5}
 	results := make([]int, 0)
+	var mu sync.Mutex
 
 	err := runWorkerPool(jobs, 2, func(job int) error {
+		mu.Lock()
 		results = append(results, job*2)
+		mu.Unlock()
 		return nil
 	})
 
@@ -61,10 +65,16 @@ func TestRunWorkerPool(t *testing.T) {
 		t.Errorf("Expected %d results, got %d", len(jobs), len(results))
 	}
 
-	for i, job := range jobs {
-		if results[i] != job*2 {
-			t.Errorf("Expected result %d for job %d, got %d", job*2, job, results[i])
+	// Check all expected values are present (order doesn't matter with concurrent workers)
+	expected := map[int]bool{2: true, 4: true, 6: true, 8: true, 10: true}
+	for _, result := range results {
+		if !expected[result] {
+			t.Errorf("Unexpected result: %d", result)
 		}
+		delete(expected, result)
+	}
+	if len(expected) > 0 {
+		t.Errorf("Missing expected results: %v", expected)
 	}
 }
 
