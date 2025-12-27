@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -53,6 +54,16 @@ func (r *directoryRenamer) RenameDirectory(directory, newName string) error {
 	// Expect at least 4 parts: YYYY MM Month DD
 	if len(parts) < 4 {
 		return fmt.Errorf("directory name does not match expected format (YYYY MM Month DD [name]): %s", baseName)
+	}
+
+	// Validate year and month are numeric
+	year, err := strconv.Atoi(parts[0])
+	if err != nil || year < 1000 || year > 9999 {
+		return fmt.Errorf("invalid year in directory name: %s", parts[0])
+	}
+	month, err := strconv.Atoi(parts[1])
+	if err != nil || month < 1 || month > 12 {
+		return fmt.Errorf("invalid month in directory name: %s", parts[1])
 	}
 
 	// Build new directory name: date + new name

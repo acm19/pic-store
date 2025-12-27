@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,8 +22,8 @@ import (
 )
 
 const (
-	tempDirPrefix        = "/tmp/pics_tmp_%d"
-	tempRestoreDirPrefix = "/tmp/pics_restore_%d"
+	tempDirPrefix        = "pics_tmp_*"
+	tempRestoreDirPrefix = "pics_restore_*"
 )
 
 // RestoreFilter defines the date range filter for restoring backups
@@ -73,9 +72,9 @@ func NewS3Backup(ctx context.Context) (Backup, error) {
 // Helper functions
 
 // createTempDir creates a temporary directory with cleanup
-func createTempDir(prefix string) (string, func(), error) {
-	tmpDir := fmt.Sprintf(prefix, rand.Int())
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+func createTempDir(pattern string) (string, func(), error) {
+	tmpDir, err := os.MkdirTemp("", pattern)
+	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
@@ -493,6 +492,9 @@ func (b *s3Backup) restoreObject(bucket, targetDir, key string) error {
 
 	// Extract directory name from key (remove " (X images, Y videos).tar.gz" suffix)
 	dirName := b.extractDirNameFromKey(key)
+	if dirName == "" {
+		return fmt.Errorf("invalid or unsafe directory name in S3 key: %s", key)
+	}
 	targetPath := filepath.Join(targetDir, dirName)
 
 	// Check if directory already exists
@@ -590,6 +592,13 @@ func (b *s3Backup) extractDirNameFromKey(key string) string {
 	if idx := strings.Index(name, " ("); idx != -1 {
 		name = name[:idx]
 	}
+
+	// Validate to prevent path traversal attacks
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, string(filepath.Separator)) {
+		logger.Error("Invalid directory name extracted from S3 key", "key", key, "extracted", name)
+		return ""
+	}
+
 	return name
 }
 

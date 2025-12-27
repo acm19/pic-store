@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -79,17 +81,22 @@ func TestRunWorkerPool(t *testing.T) {
 }
 
 func TestRunWorkerPool_WithErrors(t *testing.T) {
-	jobs := []int{1, 2, 3}
+	jobs := []int{1, 2, 3, 4, 5}
 
 	err := runWorkerPool(jobs, 2, func(job int) error {
-		if job == 2 {
-			return nil
+		if job == 2 || job == 4 {
+			return fmt.Errorf("job %d failed", job)
 		}
 		return nil
 	})
 
-	if err != nil {
-		t.Errorf("Expected no error when all jobs succeed, got: %v", err)
+	if err == nil {
+		t.Error("Expected error when jobs fail")
+	}
+
+	// Should report that some jobs failed
+	if !strings.Contains(err.Error(), "failures") {
+		t.Errorf("Expected error message to mention failures, got: %v", err)
 	}
 }
 

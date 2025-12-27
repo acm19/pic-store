@@ -118,8 +118,23 @@ func (p *mediaParser) copyAndCompressFiles(sourceDir, tmpTarget string, opts Par
 	wg.Wait()
 	close(errChan)
 
-	if err := <-errChan; err != nil {
-		return err
+	// Collect all errors from workers
+	var errors []error
+	for err := range errChan {
+		if err != nil {
+			errors = append(errors, err)
+		}
+	}
+
+	// Return first error if any occurred
+	if len(errors) > 0 {
+		if len(errors) > 1 {
+			logger.Error("Multiple errors occurred during processing", "error_count", len(errors))
+			for i, err := range errors {
+				logger.Error("Processing error", "index", i+1, "error", err)
+			}
+		}
+		return errors[0]
 	}
 
 	return nil
