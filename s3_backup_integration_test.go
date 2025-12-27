@@ -219,22 +219,28 @@ func (c *InMemoryS3Client) GetObjectData(bucket, key string) ([]byte, error) {
 
 // Integration tests
 
-func TestS3Backup_BackupDirectory_Integration(t *testing.T) {
-	// Create test directory structure
+func TestBackup_BackupDirectories(t *testing.T) {
+	// Create test directory structure with multiple subdirectories
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
-	testDir := filepath.Join(sourceDir, "2023 06 June 15 vacation")
 
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	// Create first directory
+	dir1 := filepath.Join(sourceDir, "2023 06 June 15 vacation")
+	if err := os.MkdirAll(dir1, 0755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
+	createTempTestFile(t, dir1, "photo1.jpg")
+	createTempTestFile(t, dir1, "photo2.heic")
 
-	// Create test files
-	createTempTestFile(t, testDir, "photo1.jpg")
-	createTempTestFile(t, testDir, "photo2.heic")
+	// Create second directory
+	dir2 := filepath.Join(sourceDir, "2023 12 December 25 christmas")
+	if err := os.MkdirAll(dir2, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	createTempTestFile(t, dir2, "family.jpg")
 
-	// Create videos subdirectory
-	videosDir := filepath.Join(testDir, "videos")
+	// Create videos in first directory
+	videosDir := filepath.Join(dir1, "videos")
 	if err := os.MkdirAll(videosDir, 0755); err != nil {
 		t.Fatalf("Failed to create videos directory: %v", err)
 	}
@@ -247,43 +253,33 @@ func TestS3Backup_BackupDirectory_Integration(t *testing.T) {
 		extensions: NewExtensions(),
 	}
 
-	// Backup the directory
+	// Backup all directories
 	bucket := "test-bucket"
-	err := backup.backupDirectory(sourceDir, "2023 06 June 15 vacation", bucket)
+	err := backup.BackupDirectories(sourceDir, bucket, 2)
 
 	if err != nil {
-		t.Errorf("Expected no error, got: %v", err)
+		t.Fatalf("BackupDirectories failed: %v", err)
 	}
 
-	// Verify object was created in S3
-	expectedKey := "2023 06 June 15 vacation (2 images, 1 videos).tar.gz"
-	if client.GetObjectCount(bucket) != 1 {
-		t.Errorf("Expected 1 object in bucket, got: %d", client.GetObjectCount(bucket))
+	// Verify both objects were created in S3
+	if client.GetObjectCount(bucket) != 2 {
+		t.Errorf("Expected 2 objects in bucket, got: %d", client.GetObjectCount(bucket))
 	}
 
-	// Verify we can retrieve the object
-	data, err := client.GetObjectData(bucket, expectedKey)
-	if err != nil {
-		t.Errorf("Expected to retrieve object, got error: %v", err)
+	// Verify specific keys exist
+	expectedKey1 := "2023 06 June 15 vacation (2 images, 1 videos).tar.gz"
+	expectedKey2 := "2023 12 December 25 christmas (1 images, 0 videos).tar.gz"
+
+	if _, err := client.GetObjectData(bucket, expectedKey1); err != nil {
+		t.Errorf("Expected to find %s in bucket", expectedKey1)
 	}
 
-	if len(data) == 0 {
-		t.Error("Expected non-empty archive data")
+	if _, err := client.GetObjectData(bucket, expectedKey2); err != nil {
+		t.Errorf("Expected to find %s in bucket", expectedKey2)
 	}
 }
 
-func TestS3Backup_BackupDirectory_Deduplication(t *testing.T) {
-	// Create test directory
-	tmpDir := t.TempDir()
-	sourceDir := filepath.Join(tmpDir, "source")
-	testDir := filepath.Join(sourceDir, "2023 06 June 15 vacation")
-
-	if err := os.MkdirAll(testDir, 0755); err != nil {
-		t.Fatalf("Failed to create test directory: %v", err)
-	}
-
-	createTempTestFile(t, testDir, "photo1.jpg")
-
+func TestBackup_RestoreDirectories(t *testing.T) {
 	// Create backup with in-memory client
 	client := NewInMemoryS3Client()
 	backup := &s3Backup{
@@ -293,16 +289,200 @@ func TestS3Backup_BackupDirectory_Deduplication(t *testing.T) {
 
 	bucket := "test-bucket"
 
-	// First backup
-	err := backup.backupDirectory(sourceDir, "2023 06 June 15 vacation", bucket)
+	// Create and backup test directories
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	targetDir := filepath.Join(tmpDir, "restored")
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatalf("Failed to create target directory: %v", err)
+	}
+
+	// Create test directory with files
+	dir1 := filepath.Join(sourceDir, "2023 06 June 15 vacation")
+	if err := os.MkdirAll(dir1, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	createTempTestFile(t, dir1, "photo1.jpg")
+	createTempTestFile(t, dir1, "photo2.heic")
+
+	// Backup the directory
+	if err := backup.BackupDirectories(sourceDir, bucket, 1); err != nil {
+		t.Fatalf("BackupDirectories failed: %v", err)
+	}
+
+	// Restore directories
+	err := backup.RestoreDirectories(bucket, targetDir, RestoreFilter{}, 1)
+
 	if err != nil {
+		t.Fatalf("RestoreDirectories failed: %v", err)
+	}
+
+	// Verify restored directory exists
+	restoredDir := filepath.Join(targetDir, "2023 06 June 15 vacation")
+	if _, err := os.Stat(restoredDir); os.IsNotExist(err) {
+		t.Errorf("Expected restored directory to exist at %s", restoredDir)
+	}
+
+	// Verify files were restored
+	if _, err := os.Stat(filepath.Join(restoredDir, "photo1.jpg")); os.IsNotExist(err) {
+		t.Error("Expected photo1.jpg to be restored")
+	}
+
+	if _, err := os.Stat(filepath.Join(restoredDir, "photo2.heic")); os.IsNotExist(err) {
+		t.Error("Expected photo2.heic to be restored")
+	}
+}
+
+func TestBackup_RestoreDirectories_WithFilter(t *testing.T) {
+	// Create backup with in-memory client
+	client := NewInMemoryS3Client()
+	backup := &s3Backup{
+		client:     client,
+		extensions: NewExtensions(),
+	}
+
+	bucket := "test-bucket"
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	targetDir := filepath.Join(tmpDir, "restored")
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatalf("Failed to create target directory: %v", err)
+	}
+
+	// Create directories from different dates
+	dir1 := filepath.Join(sourceDir, "2023 06 June 15 vacation")
+	dir2 := filepath.Join(sourceDir, "2023 12 December 25 christmas")
+	dir3 := filepath.Join(sourceDir, "2024 01 January 01 newyear")
+
+	for _, dir := range []string{dir1, dir2, dir3} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		createTempTestFile(t, dir, "photo.jpg")
+	}
+
+	// Backup all directories
+	if err := backup.BackupDirectories(sourceDir, bucket, 2); err != nil {
+		t.Fatalf("BackupDirectories failed: %v", err)
+	}
+
+	// Restore only 2023 directories
+	filter := RestoreFilter{
+		FromYear: 2023,
+		ToYear:   2023,
+	}
+	err := backup.RestoreDirectories(bucket, targetDir, filter, 1)
+
+	if err != nil {
+		t.Fatalf("RestoreDirectories failed: %v", err)
+	}
+
+	// Verify only 2023 directories were restored
+	if _, err := os.Stat(filepath.Join(targetDir, "2023 06 June 15 vacation")); os.IsNotExist(err) {
+		t.Error("Expected 2023 06 June 15 vacation to be restored")
+	}
+
+	if _, err := os.Stat(filepath.Join(targetDir, "2023 12 December 25 christmas")); os.IsNotExist(err) {
+		t.Error("Expected 2023 12 December 25 christmas to be restored")
+	}
+
+	if _, err := os.Stat(filepath.Join(targetDir, "2024 01 January 01 newyear")); !os.IsNotExist(err) {
+		t.Error("Expected 2024 01 January 01 newyear NOT to be restored")
+	}
+}
+
+func TestBackup_RoundTrip(t *testing.T) {
+	// Full integration test: backup and restore
+	client := NewInMemoryS3Client()
+	backup := &s3Backup{
+		client:     client,
+		extensions: NewExtensions(),
+	}
+
+	bucket := "test-bucket"
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	targetDir := filepath.Join(tmpDir, "restored")
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatalf("Failed to create target directory: %v", err)
+	}
+
+	// Create test directory with images and videos
+	testDir := filepath.Join(sourceDir, "2023 06 June 15 vacation")
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	createTempTestFile(t, testDir, "photo1.jpg")
+	createTempTestFile(t, testDir, "photo2.heic")
+
+	videosDir := filepath.Join(testDir, "videos")
+	if err := os.MkdirAll(videosDir, 0755); err != nil {
+		t.Fatalf("Failed to create videos directory: %v", err)
+	}
+	createTempTestFile(t, videosDir, "video1.mov")
+
+	// Backup
+	if err := backup.BackupDirectories(sourceDir, bucket, 1); err != nil {
+		t.Fatalf("BackupDirectories failed: %v", err)
+	}
+
+	// Verify backup exists
+	if client.GetObjectCount(bucket) != 1 {
+		t.Fatalf("Expected 1 object in bucket, got: %d", client.GetObjectCount(bucket))
+	}
+
+	// Restore
+	if err := backup.RestoreDirectories(bucket, targetDir, RestoreFilter{}, 1); err != nil {
+		t.Fatalf("RestoreDirectories failed: %v", err)
+	}
+
+	// Verify all files were restored correctly
+	restoredDir := filepath.Join(targetDir, "2023 06 June 15 vacation")
+	restoredVideosDir := filepath.Join(restoredDir, "videos")
+
+	files := []string{
+		filepath.Join(restoredDir, "photo1.jpg"),
+		filepath.Join(restoredDir, "photo2.heic"),
+		filepath.Join(restoredVideosDir, "video1.mov"),
+	}
+
+	for _, file := range files {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			t.Errorf("Expected file to be restored: %s", file)
+		}
+	}
+}
+
+func TestBackup_Deduplication(t *testing.T) {
+	client := NewInMemoryS3Client()
+	backup := &s3Backup{
+		client:     client,
+		extensions: NewExtensions(),
+	}
+
+	bucket := "test-bucket"
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+
+	// Create test directory
+	testDir := filepath.Join(sourceDir, "2023 06 June 15 vacation")
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	createTempTestFile(t, testDir, "photo1.jpg")
+
+	// First backup
+	if err := backup.BackupDirectories(sourceDir, bucket, 1); err != nil {
 		t.Fatalf("First backup failed: %v", err)
 	}
 
-	// Second backup (should be skipped due to matching hash)
-	err = backup.backupDirectory(sourceDir, "2023 06 June 15 vacation", bucket)
-	if err != nil {
-		t.Errorf("Second backup should succeed (skipped), got error: %v", err)
+	// Second backup (should skip due to matching hash)
+	if err := backup.BackupDirectories(sourceDir, bucket, 1); err != nil {
+		t.Fatalf("Second backup failed: %v", err)
 	}
 
 	// Should still have only 1 object
