@@ -13,11 +13,20 @@ type ImageCompressor interface {
 }
 
 // jpegCompressor implements the ImageCompressor interface
-type jpegCompressor struct{}
+type jpegCompressor struct {
+	jpegoptimPath string
+}
 
-// NewImageCompressor creates a new ImageCompressor instance
+// NewImageCompressor creates a new ImageCompressor instance using system jpegoptim
 func NewImageCompressor() ImageCompressor {
 	return &jpegCompressor{}
+}
+
+// NewImageCompressorWithPath creates a new ImageCompressor with a custom jpegoptim path
+func NewImageCompressorWithPath(jpegoptimPath string) ImageCompressor {
+	return &jpegCompressor{
+		jpegoptimPath: jpegoptimPath,
+	}
 }
 
 // CompressFile compresses a single JPEG file using jpegoptim (preserves EXIF)
@@ -27,8 +36,14 @@ func (c *jpegCompressor) CompressFile(path string, quality int) error {
 		return fmt.Errorf("file does not exist: %w", err)
 	}
 
+	// Determine jpegoptim path
+	jpegoptim := c.jpegoptimPath
+	if jpegoptim == "" {
+		jpegoptim = "jpegoptim" // Use system PATH
+	}
+
 	// jpegoptim preserves EXIF data and file modification time by default with -p flag
-	cmd := exec.Command("jpegoptim", fmt.Sprintf("-m%d", quality), "-p", path)
+	cmd := exec.Command(jpegoptim, fmt.Sprintf("-m%d", quality), "-p", path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("jpegoptim failed for %s: %w, output: %s", path, err, output)

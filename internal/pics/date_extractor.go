@@ -37,10 +37,18 @@ func (e *modTimeExtractor) getFileDate(filePath string) (time.Time, error) {
 }
 
 // exifDateExtractor extracts date from EXIF metadata
-type exifDateExtractor struct{}
+type exifDateExtractor struct {
+	exiftoolPath string
+}
 
 func newExifDateExtractor() *exifDateExtractor {
 	return &exifDateExtractor{}
+}
+
+func newExifDateExtractorWithPath(exiftoolPath string) *exifDateExtractor {
+	return &exifDateExtractor{
+		exiftoolPath: exiftoolPath,
+	}
 }
 
 func (e *exifDateExtractor) name() string {
@@ -48,7 +56,16 @@ func (e *exifDateExtractor) name() string {
 }
 
 func (e *exifDateExtractor) getFileDate(filePath string) (time.Time, error) {
-	et, err := exiftool.NewExiftool()
+	var et *exiftool.Exiftool
+	var err error
+
+	// Use custom exiftool path if provided
+	if e.exiftoolPath != "" {
+		et, err = exiftool.NewExiftool(exiftool.SetExiftoolBinaryPath(e.exiftoolPath))
+	} else {
+		et, err = exiftool.NewExiftool()
+	}
+
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -102,6 +119,16 @@ func NewFileDateExtractor() *AggregatedFileDateExtractor {
 	return &AggregatedFileDateExtractor{
 		extractors: []fileDateExtractor{
 			newExifDateExtractor(),
+			newModTimeExtractor(),
+		},
+	}
+}
+
+// NewFileDateExtractorWithPath creates a new AggregatedFileDateExtractor with a custom exiftool path
+func NewFileDateExtractorWithPath(exiftoolPath string) *AggregatedFileDateExtractor {
+	return &AggregatedFileDateExtractor{
+		extractors: []fileDateExtractor{
+			newExifDateExtractorWithPath(exiftoolPath),
 			newModTimeExtractor(),
 		},
 	}
