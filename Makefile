@@ -1,37 +1,56 @@
 BINARY_NAME_CLI=pics
 BINARY_NAME_UI=pics-ui
-GORELEASER := go run github.com/goreleaser/goreleaser/v2@latest
 
-# Binary versions for UI embedding
+# Tool versions
+GORELEASER_VERSION=v2.4.8
+WAILS_VERSION=v2.11.0
 EXIFTOOL_VERSION=13.45
 JPEGOPTIM_VERSION=1.5.6
+
+# Tool commands
+GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
+WAILS := go run github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
 
 .PHONY: build
 build: build-cli
 
 .PHONY: build-cli
 build-cli:
-	go build -o $(BINARY_NAME_CLI) ./apps/cli
+	cd apps/cli && go build -ldflags="-s -w" -o ../../$(BINARY_NAME_CLI)
 
 .PHONY: build-ui
-build-ui:
-	cd apps/ui && wails build
+build-ui: \
+	apps/ui/build/resources/windows/exiftool.exe \
+	apps/ui/build/resources/windows/jpegoptim.exe \
+	apps/ui/build/resources/darwin/exiftool \
+	apps/ui/build/resources/darwin/jpegoptim \
+	apps/ui/build/resources/linux/exiftool \
+	apps/ui/build/resources/linux/jpegoptim
+	cd apps/ui && $(WAILS) build -tags webkit2_41
 
 .PHONY: build-all
 build-all: build-cli build-ui
 
 .PHONY: dev-ui
 dev-ui:
-	cd apps/ui && wails dev
+	cd apps/ui && $(WAILS) dev -tags webkit2_41
 
 .PHONY: run
 # Example: make run ARGS="parse /source /target"
 run:
-	go run ./apps/cli $(ARGS)
+	cd apps/cli && go run . $(ARGS)
 
 .PHONY: test
 test:
 	go test -v ./...
+	cd apps/cli && go test -v ./...
+	cd apps/ui && go test -v ./...
+
+.PHONY: tidy
+tidy:
+	go mod tidy
+	cd apps/cli && go mod tidy
+	cd apps/ui && go mod tidy
 
 .PHONY: clean
 clean:
@@ -39,68 +58,96 @@ clean:
 	rm -rf apps/ui/build
 	rm -rf dist/
 
-.PHONY: download-binaries-windows
-download-binaries-windows:
-	@echo "Downloading Windows binaries..."
-	@mkdir -p build/resources/windows
-	@TMPDIR=$$(mktemp -d /tmp/pics-binaries-windows.XXXXXX) && \
+# Windows binaries
+apps/ui/build/resources/windows/exiftool.exe:
+	@echo "Downloading exiftool for Windows..."
+	@mkdir -p apps/ui/build/resources/windows
+	@TMPDIR=$$(mktemp -d /tmp/pics-exiftool-windows.XXXXXX) && \
 		cd $$TMPDIR && \
 		curl -L -o exiftool.zip "https://sourceforge.net/projects/exiftool/files/exiftool-$(EXIFTOOL_VERSION)_64.zip/download" && \
 		unzip -q exiftool.zip && \
 		chmod -R u+w . && \
-		cp "exiftool-$(EXIFTOOL_VERSION)_64/exiftool(-k).exe" $(CURDIR)/build/resources/windows/exiftool.exe && \
+		cp "exiftool-$(EXIFTOOL_VERSION)_64/exiftool(-k).exe" $(CURDIR)/apps/ui/build/resources/windows/exiftool.exe && \
+		cd /tmp && rm -rf $$TMPDIR
+	@echo "✓ exiftool.exe downloaded"
+
+apps/ui/build/resources/windows/jpegoptim.exe:
+	@echo "Downloading jpegoptim for Windows..."
+	@mkdir -p apps/ui/build/resources/windows
+	@TMPDIR=$$(mktemp -d /tmp/pics-jpegoptim-windows.XXXXXX) && \
+		cd $$TMPDIR && \
 		curl -L -o jpegoptim.zip "https://github.com/XhmikosR/jpegoptim-windows/releases/download/$(JPEGOPTIM_VERSION)-rel1/jpegoptim-$(JPEGOPTIM_VERSION)-rel1-win64-msvc-2022-mozjpeg331-static-ltcg.zip" && \
 		unzip -q jpegoptim.zip && \
 		chmod -R u+w . && \
-		cp jpegoptim-*/jpegoptim.exe $(CURDIR)/build/resources/windows/jpegoptim.exe && \
+		cp jpegoptim-*/jpegoptim.exe $(CURDIR)/apps/ui/build/resources/windows/jpegoptim.exe && \
 		cd /tmp && rm -rf $$TMPDIR
-	@echo "✓ Windows binaries downloaded to build/resources/windows/"
+	@echo "✓ jpegoptim.exe downloaded"
 
-.PHONY: download-binaries-darwin
-download-binaries-darwin:
-	@echo "Downloading macOS binaries..."
-	@mkdir -p build/resources/darwin
-	@TMPDIR=$$(mktemp -d /tmp/pics-binaries-darwin.XXXXXX) && \
+# macOS binaries
+apps/ui/build/resources/darwin/exiftool:
+	@echo "Downloading exiftool for macOS..."
+	@mkdir -p apps/ui/build/resources/darwin
+	@TMPDIR=$$(mktemp -d /tmp/pics-exiftool-darwin.XXXXXX) && \
 		cd $$TMPDIR && \
 		curl -L -o exiftool.tar.gz "https://exiftool.org/Image-ExifTool-$(EXIFTOOL_VERSION).tar.gz" && \
 		tar -xzf exiftool.tar.gz && \
 		chmod -R u+w . && \
-		cp Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool $(CURDIR)/build/resources/darwin/exiftool && \
-		chmod +x $(CURDIR)/build/resources/darwin/exiftool && \
+		cp Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool $(CURDIR)/apps/ui/build/resources/darwin/exiftool && \
+		chmod +x $(CURDIR)/apps/ui/build/resources/darwin/exiftool && \
+		cd /tmp && rm -rf $$TMPDIR
+	@echo "✓ exiftool downloaded"
+
+apps/ui/build/resources/darwin/jpegoptim:
+	@echo "Downloading jpegoptim for macOS..."
+	@mkdir -p apps/ui/build/resources/darwin
+	@TMPDIR=$$(mktemp -d /tmp/pics-jpegoptim-darwin.XXXXXX) && \
+		cd $$TMPDIR && \
 		curl -L -o jpegoptim.zip "https://github.com/tjko/jpegoptim/releases/download/v$(JPEGOPTIM_VERSION)/jpegoptim-$(JPEGOPTIM_VERSION)-x64-osx.zip" && \
 		unzip -q jpegoptim.zip && \
 		chmod -R u+w . && \
-		cp jpegoptim $(CURDIR)/build/resources/darwin/jpegoptim && \
-		chmod +x $(CURDIR)/build/resources/darwin/jpegoptim && \
+		cp jpegoptim $(CURDIR)/apps/ui/build/resources/darwin/jpegoptim && \
+		chmod +x $(CURDIR)/apps/ui/build/resources/darwin/jpegoptim && \
 		cd /tmp && rm -rf $$TMPDIR
-	@echo "✓ macOS binaries downloaded to build/resources/darwin/"
+	@echo "✓ jpegoptim downloaded"
 
-.PHONY: download-binaries-linux
-download-binaries-linux:
-	@echo "Downloading Linux binaries..."
-	@mkdir -p build/resources/linux
-	@TMPDIR=$$(mktemp -d /tmp/pics-binaries-linux.XXXXXX) && \
+# Linux binaries
+apps/ui/build/resources/linux/exiftool:
+	@echo "Downloading exiftool for Linux..."
+	@mkdir -p apps/ui/build/resources/linux
+	@TMPDIR=$$(mktemp -d /tmp/pics-exiftool-linux.XXXXXX) && \
 		cd $$TMPDIR && \
 		curl -L -o exiftool.tar.gz "https://exiftool.org/Image-ExifTool-$(EXIFTOOL_VERSION).tar.gz" && \
 		tar -xzf exiftool.tar.gz && \
 		chmod -R u+w . && \
-		cp Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool $(CURDIR)/build/resources/linux/exiftool && \
-		chmod +x $(CURDIR)/build/resources/linux/exiftool && \
+		cp Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool $(CURDIR)/apps/ui/build/resources/linux/exiftool && \
+		chmod +x $(CURDIR)/apps/ui/build/resources/linux/exiftool && \
+		cd /tmp && rm -rf $$TMPDIR
+	@echo "✓ exiftool downloaded"
+
+apps/ui/build/resources/linux/jpegoptim:
+	@echo "Downloading jpegoptim for Linux..."
+	@mkdir -p apps/ui/build/resources/linux
+	@TMPDIR=$$(mktemp -d /tmp/pics-jpegoptim-linux.XXXXXX) && \
+		cd $$TMPDIR && \
 		curl -L -o jpegoptim.zip "https://github.com/tjko/jpegoptim/releases/download/v$(JPEGOPTIM_VERSION)/jpegoptim-$(JPEGOPTIM_VERSION)-x64-linux.zip" && \
 		unzip -q jpegoptim.zip && \
 		chmod -R u+w . && \
-		cp jpegoptim $(CURDIR)/build/resources/linux/jpegoptim && \
-		chmod +x $(CURDIR)/build/resources/linux/jpegoptim && \
+		cp jpegoptim $(CURDIR)/apps/ui/build/resources/linux/jpegoptim && \
+		chmod +x $(CURDIR)/apps/ui/build/resources/linux/jpegoptim && \
 		cd /tmp && rm -rf $$TMPDIR
-	@echo "✓ Linux binaries downloaded to build/resources/linux/"
+	@echo "✓ jpegoptim downloaded"
 
+# Convenience target to download all binaries
 .PHONY: download-binaries
-download-binaries: download-binaries-windows download-binaries-darwin download-binaries-linux
+download-binaries: \
+	apps/ui/build/resources/windows/exiftool.exe \
+	apps/ui/build/resources/windows/jpegoptim.exe \
+	apps/ui/build/resources/darwin/exiftool \
+	apps/ui/build/resources/darwin/jpegoptim \
+	apps/ui/build/resources/linux/exiftool \
+	apps/ui/build/resources/linux/jpegoptim
 	@echo ""
-	@echo "All binaries downloaded successfully!"
-	@echo "Windows: build/resources/windows/{exiftool.exe, jpegoptim.exe}"
-	@echo "macOS:   build/resources/darwin/{exiftool, jpegoptim}"
-	@echo "Linux:   build/resources/linux/{exiftool, jpegoptim}"
+	@echo "✓ All binaries ready!"
 
 .PHONY: release-snapshot
 release-snapshot:

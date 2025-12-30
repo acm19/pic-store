@@ -35,6 +35,15 @@ func NewMediaParser() MediaParser {
 	}
 }
 
+// NewMediaParserWithPaths creates a new MediaParser with custom binary paths
+func NewMediaParserWithPaths(jpegoptimPath string, organiser FileOrganiser) MediaParser {
+	return &mediaParser{
+		compressor: NewImageCompressorWithPath(jpegoptimPath),
+		organiser:  organiser,
+		extensions: NewExtensions(),
+	}
+}
+
 // Parse processes media files from source to target directory
 func (p *mediaParser) Parse(sourceDir, targetDir string, opts ParseOptions) error {
 	sourceDir = strings.TrimSuffix(sourceDir, "/")

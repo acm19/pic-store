@@ -2,8 +2,14 @@ version: 2
 
 before:
   hooks:
+    # Tidy all modules
     - go mod tidy
+    - cd apps/cli && go mod tidy
+    - cd apps/ui && go mod tidy
+    # Test all modules
     - go test ./...
+    - cd apps/cli && go test ./...
+    - cd apps/ui && go test ./...
 
 builds:
   - id: cli

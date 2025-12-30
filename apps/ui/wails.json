@@ -1,0 +1,24 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "pics-ui",
+  "outputfilename": "pics-ui",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev": "npm run dev",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "acm19",
+    "email": ""
+  },
+  "info": {
+    "companyName": "acm19",
+    "productName": "Pics UI",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2026 acm19",
+    "comments": "Media organiser and compressor"
+  },
+  "nsisType": "multiple",
+  "obfuscated": false,
+  "wailsjsdir": "./frontend/src/lib"
+}

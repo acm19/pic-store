@@ -33,6 +33,15 @@ func NewFileOrganiser() FileOrganiser {
 	}
 }
 
+// NewFileOrganiserWithPaths creates a new FileOrganiser with custom binary paths
+func NewFileOrganiserWithPaths(exiftoolPath string) FileOrganiser {
+	return &fileOrganiser{
+		dateExtractor: NewFileDateExtractorWithPath(exiftoolPath),
+		extensions:    NewExtensions(),
+		fileRenamer:   NewFileRenamer(),
+	}
+}
+
 // OrganiseByDate moves files to date-based directories
 func (o *fileOrganiser) OrganiseByDate(sourceDir, targetDir string, progressChan chan<- ProgressEvent) error {
 	entries, err := os.ReadDir(sourceDir)

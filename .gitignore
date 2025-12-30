@@ -1,10 +1,17 @@
 # IDE files
 *.swp
 .idea
+.DS_Store
 
-# build files
+# Build artifacts
 /pics
-pics-ui
-dist/
-build/
+/pics-ui
+/dist/
+
+# UI build output
+apps/ui/build/
+
+# Frontend
 apps/ui/frontend/node_modules/
+apps/ui/frontend/dist/
+apps/ui/frontend/src/lib/wailsjs/
